@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+httpx
+pyjwt
+sqlmodel
+sqlalchemy
+psycopg[binary]
+apscheduler
+firebase-admin

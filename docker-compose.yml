@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    container_name: sinawise-db
+    restart: always
+    environment:
+      POSTGRES_DB: sinawise
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    container_name: sinawise-backend
+    restart: always
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/sinawise
+      JWT_SECRET: super-rahasia-panjang
+      ADMIN_USERNAME: sinauguardian@gmail.com
+      ADMIN_PASSWORD: bismillahjuara
+      CORS_ORIGINS: "*"
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:
