@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, Session, select
 
 from .db import get_session
-from .admin_auth_api import admin_guard  # pastikan ada di file admin_auth_api.py
+from .admin_auth_api import admin_guard
 
 
 # =========================
@@ -23,9 +23,9 @@ class EmergencyState(SQLModel, table=True):
 
 
 # =========================
-# SCHEMAS
+# REQUEST BODY
 # =========================
-class ActivateReq(BaseModel):
+class TriggerReq(BaseModel):
     level: str = "AWAS"
     message: str = "Peringatan darurat."
 
@@ -38,6 +38,7 @@ class ClearReq(BaseModel):
 # ROUTERS
 # =========================
 router = APIRouter(prefix="/emergency", tags=["Emergency"])
+
 admin_router = APIRouter(
     prefix="/admin/emergency",
     tags=["Admin Emergency"],
@@ -56,7 +57,7 @@ def _get_or_create(session: Session) -> EmergencyState:
 
 
 @router.get("/status")
-def get_status(session: Session = Depends(get_session)):
+def status(session: Session = Depends(get_session)):
     st = _get_or_create(session)
     return {
         "active": st.active,
@@ -66,9 +67,8 @@ def get_status(session: Session = Depends(get_session)):
     }
 
 
-# ✅ endpoint yang kamu SUDAH punya di openapi: /admin/emergency/trigger
 @admin_router.post("/trigger")
-def trigger(req: ActivateReq, session: Session = Depends(get_session)):
+def trigger(req: TriggerReq, session: Session = Depends(get_session)):
     st = _get_or_create(session)
     st.active = True
     st.level = req.level
@@ -81,9 +81,9 @@ def trigger(req: ActivateReq, session: Session = Depends(get_session)):
     return {"ok": True, "status": {"active": st.active, "level": st.level, "message": st.message, "updated_at": st.updated_at}}
 
 
-# ✅ alias biar /activate juga bisa (kalau kamu mau pakai nama itu di Flutter)
+# ✅ alias biar /activate juga bisa (biar gak 404 lagi)
 @admin_router.post("/activate")
-def activate(req: ActivateReq, session: Session = Depends(get_session)):
+def activate(req: TriggerReq, session: Session = Depends(get_session)):
     return trigger(req, session)
 
 
@@ -93,7 +93,7 @@ def clear(req: Optional[ClearReq] = None, session: Session = Depends(get_session
 
     st.active = False
     st.level = None
-    st.message = (req.message if req else "Situasi sudah aman.")
+    st.message = req.message if req else "Situasi sudah aman."
     st.updated_at = datetime.now(timezone.utc).isoformat()
 
     session.add(st)

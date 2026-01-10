@@ -8,7 +8,6 @@ from typing import Any, Dict, Optional
 
 import httpx
 from fastapi import FastAPI, HTTPException
-
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
@@ -25,9 +24,7 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 app = FastAPI(title="Sinabung Early Warning MVP", version="0.1.0")
 
 # -----------------------------------------------------------------------------
-# CORS (biar aman kalau nanti akses dari web / debug / emulator)
-# Flutter mobile biasanya aman, tapi ini tidak ada ruginya.
-# Kalau mau lebih ketat: set CORS_ALLOW_ORIGINS="https://domainmu.com,https://adminmu.com"
+# CORS
 # -----------------------------------------------------------------------------
 _allow_origins = os.getenv("CORS_ALLOW_ORIGINS", "*").strip()
 if _allow_origins == "*":
@@ -60,9 +57,18 @@ try:
 except Exception as e:
     logger.warning("Education routes not enabled: %s: %s", type(e).__name__, e)
 
+# Emergency: public + admin (kalau admin_router ada)
 try:
     from .emergency_api import router as emergency_router
     app.include_router(emergency_router)
+
+    # optional: kalau kamu pakai admin_router terpisah
+    try:
+        from .emergency_api import admin_router as emergency_admin_router
+        app.include_router(emergency_admin_router)
+    except Exception:
+        pass
+
     logger.info("Emergency routes enabled.")
 except Exception as e:
     logger.warning("Emergency routes not enabled: %s: %s", type(e).__name__, e)
@@ -126,7 +132,6 @@ def _extract_radius_km(rekomendasi: list[str]) -> list[str]:
             if "sektoral" in last and "area:" not in last:
                 results[-1] = f"{last} (area: {area.group(1).strip()})"
 
-    # unique
     uniq: list[str] = []
     seen: set[str] = set()
     for r in results:
@@ -139,7 +144,6 @@ def _extract_radius_km(rekomendasi: list[str]) -> list[str]:
 def _ensure_magma_ready() -> None:
     if FEATURES_ERROR or get_latest_sinabung_report_url is None or fetch_report_detail is None:
         raise HTTPException(status_code=503, detail=f"MAGMA feature not ready: {FEATURES_ERROR}")
-
 
 # -----------------------------------------------------------------------------
 # Endpoints
@@ -154,9 +158,14 @@ def root() -> Dict[str, Any]:
         # public:
         "posko_public": "/evacuation/posts",
         "education_public": "/education/videos",
+        "emergency_status": "/emergency/status",
         # admin auth:
         "admin_login": "/admin/login",
         "admin_me": "/admin/me",
+        # admin emergency:
+        "admin_emergency_trigger": "/admin/emergency/trigger (POST)",
+        "admin_emergency_activate": "/admin/emergency/activate (POST)",
+        "admin_emergency_clear": "/admin/emergency/clear (POST)",
         # admin CRUD:
         "posko_admin": "/admin/posts (GET/POST)",
         "posko_admin_by_id": "/admin/posts/{posko_id} (PUT/DELETE)",
@@ -190,14 +199,7 @@ def sinabung_last() -> Dict[str, Any]:
 
 @app.get("/sinabung/dashboard")
 async def dashboard() -> Dict[str, Any]:
-    """
-    Dashboard gabungan:
-    - MAGMA/PVMBG: level + laporan + rekomendasi + radius_info
-    - BMKG: gempa terbaru (autogempa)
-
-    Kalau MAGMA error, BMKG tetap keluar.
-    """
-    # BMKG dulu
+    # BMKG
     try:
         from .bmkg import fetch_latest_quake
         bmkg = await fetch_latest_quake()
@@ -241,9 +243,6 @@ async def dashboard() -> Dict[str, Any]:
     return {"volcano": volcano_payload, "earthquake": bmkg}
 
 
-# -----------------------------------------------------------------------------
-# Core job: check MAGMA -> compare state -> send notification -> save state
-# -----------------------------------------------------------------------------
 async def check_update() -> None:
     if (
         FEATURES_ERROR
@@ -327,17 +326,12 @@ async def admin_check_now() -> Dict[str, Any]:
     return {"ok": True}
 
 
-# -----------------------------------------------------------------------------
-# Startup/shutdown: init DB + scheduler
-# -----------------------------------------------------------------------------
 @app.on_event("startup")
 async def on_startup() -> None:
-    # init DB tables (SQLModel.metadata.create_all)
     try:
         init_db()
         logger.info("DB init done.")
     except Exception as e:
-        # Jangan bikin server mati kalau DB belum ready (biar endpoint lain masih jalan)
         logger.warning("DB init failed: %s: %s", type(e).__name__, e)
 
     if FEATURES_ERROR or scheduler is None:
