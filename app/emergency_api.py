@@ -1,52 +1,113 @@
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from sqlmodel import SQLModel, Field, Session, select
 
-from .admin_auth_api import admin_guard
+from .db import get_session
+from .admin_auth_api import require_admin
+from .notifier import send_to_topic
 
-router = APIRouter(tags=["emergency"])
+router = APIRouter(tags=["Emergency"])
 
-# Ambil send_to_topic dari notifier (kalau tersedia)
-try:
-    from .notifier import send_to_topic
-except Exception:
-    send_to_topic = None
 
-EMERGENCY_TOPIC = os.environ.get("FCM_EMERGENCY_TOPIC", "sinabung_emergency").strip() or "sinabung_emergency"
+# ===== DB MODEL =====
+class EmergencyState(SQLModel, table=True):
+    id: int = Field(default=1, primary_key=True)
+    active: bool = Field(default=False)
+    message: str = Field(default="Peringatan darurat.")
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class EmergencyReq(BaseModel):
-    kind: str = Field(..., description="alarm atau stop")
-    title: Optional[str] = None
-    body: Optional[str] = None
 
-@router.post("/admin/emergency/trigger", dependencies=[Depends(admin_guard)])
-def emergency_trigger(payload: EmergencyReq) -> Dict[str, Any]:
-    if send_to_topic is None:
-        raise HTTPException(status_code=503, detail="FCM notifier belum siap (cek notifier.py & credentials).")
+# ===== SCHEMA =====
+class EmergencyTriggerIn(BaseModel):
+    message: str = "PERINGATAN DARURAT! Segera lakukan evakuasi."
+    # optional: level, source, dll
+    level: Optional[str] = None
 
-    kind = payload.kind.strip().lower()
-    if kind not in ("alarm", "stop"):
-        raise HTTPException(status_code=400, detail="kind harus 'alarm' atau 'stop'")
 
-    title = payload.title or ("PERINGATAN DARURAT" if kind == "alarm" else "STOP PERINGATAN")
-    body = payload.body or ("Segera menuju posko terdekat!" if kind == "alarm" else "Peringatan dihentikan.")
+class EmergencyOut(BaseModel):
+    active: bool
+    message: str
+    updated_at: str
 
-    # Data penting untuk aplikasi flutter (nanti flutter baca ini)
-    data = {
-        "type": "EMERGENCY_ALARM" if kind == "alarm" else "EMERGENCY_STOP",
-        "ts_utc": datetime.now(timezone.utc).isoformat(),
-    }
 
-    msg_id = send_to_topic(
-        topic=EMERGENCY_TOPIC,
-        title=title,
-        body=body,
-        data=data,
+def _get_or_create_state(session: Session) -> EmergencyState:
+    st = session.get(EmergencyState, 1)
+    if st is None:
+        st = EmergencyState(id=1, active=False, message="Peringatan darurat.")
+        session.add(st)
+        session.commit()
+        session.refresh(st)
+    return st
+
+
+# ===== PUBLIC: user bisa cek status =====
+@router.get("/emergency/status", response_model=EmergencyOut)
+def get_emergency_status(session: Session = Depends(get_session)) -> EmergencyOut:
+    st = _get_or_create_state(session)
+    return EmergencyOut(
+        active=st.active,
+        message=st.message,
+        updated_at=st.updated_at.isoformat(),
     )
 
-    return {"ok": True, "topic": EMERGENCY_TOPIC, "message_id": str(msg_id), "data": data}
+
+# ===== ADMIN: trigger =====
+@router.post("/admin/emergency/trigger")
+def admin_trigger_emergency(
+    payload: EmergencyTriggerIn,
+    _admin: str = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    st = _get_or_create_state(session)
+    st.active = True
+    st.message = payload.message
+    st.updated_at = datetime.now(timezone.utc)
+    session.add(st)
+    session.commit()
+
+    # kirim push ke semua user (topic)
+    # IMPORTANT: kirim notification+data, biar muncul walau app background
+    send_to_topic(
+        topic="sinabung",
+        title="PERINGATAN DARURAT",
+        body=payload.message,
+        data={
+            "type": "emergency",
+            "active": "1",
+            "message": payload.message,
+            "level": payload.level or "",
+        },
+    )
+
+    return {"ok": True, "active": True, "message": payload.message}
+
+
+# ===== ADMIN: clear =====
+@router.post("/admin/emergency/clear")
+def admin_clear_emergency(
+    _admin: str = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> Dict[str, Any]:
+    st = _get_or_create_state(session)
+    st.active = False
+    st.updated_at = datetime.now(timezone.utc)
+    session.add(st)
+    session.commit()
+
+    send_to_topic(
+        topic="sinabung",
+        title="INFO",
+        body="Status sudah aman.",
+        data={
+            "type": "emergency",
+            "active": "0",
+            "message": "Status sudah aman.",
+        },
+    )
+
+    return {"ok": True, "active": False}
