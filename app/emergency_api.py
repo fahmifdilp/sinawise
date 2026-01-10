@@ -1,113 +1,102 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlmodel import SQLModel, Field, Session, select
 
 from .db import get_session
-from .admin_auth_api import require_admin
-from .notifier import send_to_topic
-
-router = APIRouter(tags=["Emergency"])
+from .admin_auth_api import admin_guard  # pastikan ada di file admin_auth_api.py
 
 
-# ===== DB MODEL =====
+# =========================
+# DB MODEL
+# =========================
 class EmergencyState(SQLModel, table=True):
     id: int = Field(default=1, primary_key=True)
     active: bool = Field(default=False)
+    level: Optional[str] = Field(default=None)
     message: str = Field(default="Peringatan darurat.")
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
-# ===== SCHEMA =====
-class EmergencyTriggerIn(BaseModel):
-    message: str = "PERINGATAN DARURAT! Segera lakukan evakuasi."
-    # optional: level, source, dll
-    level: Optional[str] = None
+# =========================
+# SCHEMAS
+# =========================
+class ActivateReq(BaseModel):
+    level: str = "AWAS"
+    message: str = "Peringatan darurat."
 
 
-class EmergencyOut(BaseModel):
-    active: bool
-    message: str
-    updated_at: str
+class ClearReq(BaseModel):
+    message: str = "Situasi sudah aman."
 
 
-def _get_or_create_state(session: Session) -> EmergencyState:
-    st = session.get(EmergencyState, 1)
+# =========================
+# ROUTERS
+# =========================
+router = APIRouter(prefix="/emergency", tags=["Emergency"])
+admin_router = APIRouter(
+    prefix="/admin/emergency",
+    tags=["Admin Emergency"],
+    dependencies=[Depends(admin_guard)],
+)
+
+
+def _get_or_create(session: Session) -> EmergencyState:
+    st = session.exec(select(EmergencyState).where(EmergencyState.id == 1)).first()
     if st is None:
-        st = EmergencyState(id=1, active=False, message="Peringatan darurat.")
+        st = EmergencyState(id=1)
         session.add(st)
         session.commit()
         session.refresh(st)
     return st
 
 
-# ===== PUBLIC: user bisa cek status =====
-@router.get("/emergency/status", response_model=EmergencyOut)
-def get_emergency_status(session: Session = Depends(get_session)) -> EmergencyOut:
-    st = _get_or_create_state(session)
-    return EmergencyOut(
-        active=st.active,
-        message=st.message,
-        updated_at=st.updated_at.isoformat(),
-    )
+@router.get("/status")
+def get_status(session: Session = Depends(get_session)):
+    st = _get_or_create(session)
+    return {
+        "active": st.active,
+        "level": st.level,
+        "message": st.message,
+        "updated_at": st.updated_at,
+    }
 
 
-# ===== ADMIN: trigger =====
-@router.post("/admin/emergency/trigger")
-def admin_trigger_emergency(
-    payload: EmergencyTriggerIn,
-    _admin: str = Depends(require_admin),
-    session: Session = Depends(get_session),
-) -> Dict[str, Any]:
-    st = _get_or_create_state(session)
+# ✅ endpoint yang kamu SUDAH punya di openapi: /admin/emergency/trigger
+@admin_router.post("/trigger")
+def trigger(req: ActivateReq, session: Session = Depends(get_session)):
+    st = _get_or_create(session)
     st.active = True
-    st.message = payload.message
-    st.updated_at = datetime.now(timezone.utc)
+    st.level = req.level
+    st.message = req.message
+    st.updated_at = datetime.now(timezone.utc).isoformat()
+
     session.add(st)
     session.commit()
-
-    # kirim push ke semua user (topic)
-    # IMPORTANT: kirim notification+data, biar muncul walau app background
-    send_to_topic(
-        topic="sinabung",
-        title="PERINGATAN DARURAT",
-        body=payload.message,
-        data={
-            "type": "emergency",
-            "active": "1",
-            "message": payload.message,
-            "level": payload.level or "",
-        },
-    )
-
-    return {"ok": True, "active": True, "message": payload.message}
+    session.refresh(st)
+    return {"ok": True, "status": {"active": st.active, "level": st.level, "message": st.message, "updated_at": st.updated_at}}
 
 
-# ===== ADMIN: clear =====
-@router.post("/admin/emergency/clear")
-def admin_clear_emergency(
-    _admin: str = Depends(require_admin),
-    session: Session = Depends(get_session),
-) -> Dict[str, Any]:
-    st = _get_or_create_state(session)
+# ✅ alias biar /activate juga bisa (kalau kamu mau pakai nama itu di Flutter)
+@admin_router.post("/activate")
+def activate(req: ActivateReq, session: Session = Depends(get_session)):
+    return trigger(req, session)
+
+
+@admin_router.post("/clear")
+def clear(req: Optional[ClearReq] = None, session: Session = Depends(get_session)):
+    st = _get_or_create(session)
+
     st.active = False
-    st.updated_at = datetime.now(timezone.utc)
+    st.level = None
+    st.message = (req.message if req else "Situasi sudah aman.")
+    st.updated_at = datetime.now(timezone.utc).isoformat()
+
     session.add(st)
     session.commit()
-
-    send_to_topic(
-        topic="sinabung",
-        title="INFO",
-        body="Status sudah aman.",
-        data={
-            "type": "emergency",
-            "active": "0",
-            "message": "Status sudah aman.",
-        },
-    )
-
-    return {"ok": True, "active": False}
+    session.refresh(st)
+    return {"ok": True, "status": {"active": st.active, "level": st.level, "message": st.message, "updated_at": st.updated_at}}
