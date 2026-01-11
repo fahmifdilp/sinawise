@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -9,6 +11,15 @@ from sqlmodel import SQLModel, Field, Session, select
 
 from .db import get_session
 from .admin_auth_api import admin_guard
+
+logger = logging.getLogger("sinabung")
+
+# Optional: FCM notifier (kalau firebase_admin belum siap, endpoint tetap jalan)
+try:
+    from .notifier import send_to_topic  # send_to_topic(topic, title, body, data)
+except Exception as e:
+    send_to_topic = None
+    logger.warning("FCM notifier not ready: %s: %s", type(e).__name__, e)
 
 
 # =========================
@@ -37,13 +48,20 @@ class ClearReq(BaseModel):
 # =========================
 # ROUTERS
 # =========================
-router = APIRouter(prefix="/emergency", tags=["Emergency"])
+# router utama yang akan di-include di main.py
+router = APIRouter()
+
+public_router = APIRouter(prefix="/emergency", tags=["Emergency"])
 
 admin_router = APIRouter(
     prefix="/admin/emergency",
     tags=["Admin Emergency"],
     dependencies=[Depends(admin_guard)],
 )
+
+# gabungkan semua endpoint
+router.include_router(public_router)
+router.include_router(admin_router)
 
 
 def _get_or_create(session: Session) -> EmergencyState:
@@ -56,7 +74,54 @@ def _get_or_create(session: Session) -> EmergencyState:
     return st
 
 
-@router.get("/status")
+def _topic() -> str:
+    # pakai env kalau ada, fallback ke "sinabung"
+    return (os.getenv("FCM_TOPIC", "sinabung").strip() or "sinabung")
+
+
+def _send_emergency_push(st: EmergencyState) -> None:
+    """
+    Kirim push ke semua user (topic).
+    - Trigger: notifikasi BAHAYA
+    - Clear: bisa opsional (default: tidak kirim)
+    """
+    if send_to_topic is None:
+        logger.info("FCM disabled (send_to_topic not available).")
+        return
+
+    # kalau clear, default tidak kirim notif biar nggak spam
+    notify_clear = os.getenv("EMERGENCY_NOTIFY_CLEAR", "0").strip() == "1"
+    if (not st.active) and (not notify_clear):
+        return
+
+    level = st.level or ""
+    if st.active:
+        title = f"BAHAYA{(' - ' + level) if level else ''}"
+        body = st.message or "Segera evakuasi!"
+    else:
+        title = "INFO"
+        body = st.message or "Situasi sudah aman."
+
+    data = {
+        "event": "emergency",
+        "route": "/emergency",  # Flutter buka ke halaman emergency
+        "active": "true" if st.active else "false",
+        "level": level,
+        "message": st.message or "",
+        "updated_at": st.updated_at,
+    }
+
+    try:
+        msg_id = send_to_topic(topic=_topic(), title=title, body=body, data=data)
+        logger.info("FCM sent msg_id=%s topic=%s active=%s", msg_id, _topic(), st.active)
+    except Exception:
+        logger.exception("Failed to send FCM (cek GOOGLE_APPLICATION_CREDENTIALS / firebase).")
+
+
+# =========================
+# PUBLIC
+# =========================
+@public_router.get("/status")
 def status(session: Session = Depends(get_session)):
     st = _get_or_create(session)
     return {
@@ -67,6 +132,9 @@ def status(session: Session = Depends(get_session)):
     }
 
 
+# =========================
+# ADMIN
+# =========================
 @admin_router.post("/trigger")
 def trigger(req: TriggerReq, session: Session = Depends(get_session)):
     st = _get_or_create(session)
@@ -78,10 +146,22 @@ def trigger(req: TriggerReq, session: Session = Depends(get_session)):
     session.add(st)
     session.commit()
     session.refresh(st)
-    return {"ok": True, "status": {"active": st.active, "level": st.level, "message": st.message, "updated_at": st.updated_at}}
+
+    # ✅ kirim push saat emergency ON
+    _send_emergency_push(st)
+
+    return {
+        "ok": True,
+        "status": {
+            "active": st.active,
+            "level": st.level,
+            "message": st.message,
+            "updated_at": st.updated_at,
+        },
+    }
 
 
-# ✅ alias biar /activate juga bisa (biar gak 404 lagi)
+# ✅ alias biar /activate juga bisa
 @admin_router.post("/activate")
 def activate(req: TriggerReq, session: Session = Depends(get_session)):
     return trigger(req, session)
@@ -99,4 +179,16 @@ def clear(req: Optional[ClearReq] = None, session: Session = Depends(get_session
     session.add(st)
     session.commit()
     session.refresh(st)
-    return {"ok": True, "status": {"active": st.active, "level": st.level, "message": st.message, "updated_at": st.updated_at}}
+
+    # (opsional) kirim push saat aman kalau EMERGENCY_NOTIFY_CLEAR=1
+    _send_emergency_push(st)
+
+    return {
+        "ok": True,
+        "status": {
+            "active": st.active,
+            "level": st.level,
+            "message": st.message,
+            "updated_at": st.updated_at,
+        },
+    }
