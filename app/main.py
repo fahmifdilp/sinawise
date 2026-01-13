@@ -57,7 +57,7 @@ try:
 except Exception as e:
     logger.warning("Education routes not enabled: %s: %s", type(e).__name__, e)
 
-# Emergency: public + admin (kalau admin_router ada)
+# Emergency
 try:
     from .emergency_api import router as emergency_router
     app.include_router(emergency_router)
