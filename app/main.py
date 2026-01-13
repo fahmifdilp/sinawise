@@ -62,13 +62,6 @@ try:
     from .emergency_api import router as emergency_router
     app.include_router(emergency_router)
 
-    # optional: kalau kamu pakai admin_router terpisah
-    try:
-        from .emergency_api import admin_router as emergency_admin_router
-        app.include_router(emergency_admin_router)
-    except Exception:
-        pass
-
     logger.info("Emergency routes enabled.")
 except Exception as e:
     logger.warning("Emergency routes not enabled: %s: %s", type(e).__name__, e)
