@@ -61,13 +61,28 @@ def send_to_topic(
         notif = messaging.Notification(
             title=title,
             body=body,
-            sound=sound,
         )
+
+    android_notification = None
+    apns_cfg = None
+    if sound:
+        android_notification = messaging.AndroidNotification(sound=sound)
+        apns_cfg = messaging.APNSConfig(
+            payload=messaging.APNSPayload(
+                aps=messaging.Aps(sound=sound),
+            )
+        )
+
+    android_cfg = messaging.AndroidConfig(
+        priority=android_priority,
+        notification=android_notification,
+    )
 
     msg = messaging.Message(
         topic=topic,
         notification=notif,
         data=data or {},
-        android=messaging.AndroidConfig(priority=android_priority),
+        android=android_cfg,
+        apns=apns_cfg,
     )
     return messaging.send(msg)
