@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 
 import firebase_admin
 from firebase_admin import credentials, messaging
@@ -16,7 +18,24 @@ def init_firebase() -> None:
 
     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip()
     if not cred_path:
-        raise RuntimeError("GOOGLE_APPLICATION_CREDENTIALS belum diset.")
+        raw = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
+        if raw:
+            try:
+                data = json.loads(raw)
+            except Exception as e:
+                raise RuntimeError(f"FIREBASE_SERVICE_ACCOUNT_JSON tidak valid JSON: {e}") from e
+
+            fd, tmp_path = tempfile.mkstemp(prefix="firebase_", suffix=".json")
+            os.close(fd)
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            cred_path = tmp_path
+        else:
+            raise RuntimeError(
+                "Firebase credentials belum diset. "
+                "Set GOOGLE_APPLICATION_CREDENTIALS (path file JSON) "
+                "atau FIREBASE_SERVICE_ACCOUNT_JSON (isi JSON service account)."
+            )
 
     cred = credentials.Certificate(cred_path)
     firebase_admin.initialize_app(cred)
