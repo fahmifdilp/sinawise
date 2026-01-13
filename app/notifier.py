@@ -29,6 +29,7 @@ def send_to_topic(
     data: dict[str, str] | None = None,
     notification: bool = True,
     android_priority: str = "high",
+    sound: str | None = None,
 ) -> str:
     """
     Kirim push notification ke FCM topic (mis. 'sinabung').
@@ -36,9 +37,17 @@ def send_to_topic(
     """
     init_firebase()
 
+    notif = None
+    if notification:
+        notif = messaging.Notification(
+            title=title,
+            body=body,
+            sound=sound,
+        )
+
     msg = messaging.Message(
         topic=topic,
-        notification=messaging.Notification(title=title, body=body) if notification else None,
+        notification=notif,
         data=data or {},
         android=messaging.AndroidConfig(priority=android_priority),
     )

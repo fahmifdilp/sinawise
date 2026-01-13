@@ -88,15 +88,19 @@ def emergency_trigger(payload: EmergencyTriggerReq) -> Dict[str, Any]:
         try:
             data = {
                 "type": "EMERGENCY_ALARM",
-                "ts_utc": state["updated_at"],
-                "level": level or "",
-                "message": message,
+                "active": "1",
+                "ts_utc": str(state["updated_at"]),
+                "level": str(level or ""),
+                "message": str(message),
+                "title": str(payload.title or "PERINGATAN DARURAT"),
             }
             send_to_topic(
                 topic=EMERGENCY_TOPIC,
                 title=payload.title or "PERINGATAN DARURAT",
                 body=message,
                 data=data,
+                notification=True,
+                sound="default",
             )
         except Exception:
             logger.exception("Failed to send emergency alarm notification.")
@@ -123,14 +127,18 @@ def emergency_clear(payload: EmergencyClearReq) -> Dict[str, Any]:
         try:
             data = {
                 "type": "EMERGENCY_STOP",
-                "ts_utc": state["updated_at"],
-                "message": message,
+                "active": "0",
+                "ts_utc": str(state["updated_at"]),
+                "message": str(message),
+                "title": "Situasi Aman",
             }
             send_to_topic(
                 topic=EMERGENCY_TOPIC,
                 title="Situasi Aman",
                 body=message,
                 data=data,
+                notification=True,
+                sound="default",
             )
         except Exception:
             logger.exception("Failed to send emergency clear notification.")
