@@ -73,6 +73,13 @@ try:
 except Exception as e:
     logger.warning("Admin auth routes not enabled: %s: %s", type(e).__name__, e)
 
+try:
+    from .iot_api import router as iot_router
+    app.include_router(iot_router)
+    logger.info("IoT routes enabled.")
+except Exception as e:
+    logger.warning("IoT routes not enabled: %s: %s", type(e).__name__, e)
+
 # -----------------------------------------------------------------------------
 # Optional components (scheduler + MAGMA fetch + notifier + state)
 # -----------------------------------------------------------------------------
@@ -166,6 +173,8 @@ def root() -> Dict[str, Any]:
         "education_admin_by_id": "/admin/videos/{video_id} (PUT/DELETE)",
         # scheduler manual:
         "admin_check_now": "/admin/check-now (POST)",
+        # iot:
+        "iot_air_latest": "/iot/air/latest",
     }
 
 
