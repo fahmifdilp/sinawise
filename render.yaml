@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: sinabung-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 
+    envVars:
+      - key: LOG_LEVEL
+        value: info
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FCM_EMERGENCY_TOPIC
+        sync: false
+      - key: FCM_TOPIC
+        sync: false
+      - key: MAGMA_TINGKAT_URL
+        sync: false
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        sync: false
