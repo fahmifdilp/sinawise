@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import init_db
+from .storage import read_json, write_json
 
 # -----------------------------------------------------------------------------
 # Logging
@@ -86,6 +87,7 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 FEATURES_ERROR: Optional[str] = None
 DEFAULT_MAGMA_TINGKAT_URL = "https://magma.esdm.go.id/v1/gunung-api/tingkat-aktivitas"
+MAGMA_CACHE_KEY = "magma_latest_cache"
 scheduler = None
 get_latest_sinabung_report_url = None
 fetch_report_detail = None
@@ -145,6 +147,17 @@ def _extract_radius_km(rekomendasi: list[str]) -> list[str]:
 def _ensure_magma_ready() -> None:
     if FEATURES_ERROR or get_latest_sinabung_report_url is None or fetch_report_detail is None:
         raise HTTPException(status_code=503, detail=f"MAGMA feature not ready: {FEATURES_ERROR}")
+
+
+def _load_magma_cache() -> Dict[str, Any]:
+    data = read_json(MAGMA_CACHE_KEY, {})
+    return data if isinstance(data, dict) else {}
+
+
+def _save_magma_cache(payload: Dict[str, Any]) -> None:
+    cache_data = dict(payload)
+    cache_data["cached_at"] = datetime.now(timezone.utc).isoformat()
+    write_json(MAGMA_CACHE_KEY, cache_data)
 
 # -----------------------------------------------------------------------------
 # Endpoints
@@ -231,13 +244,32 @@ async def dashboard() -> Dict[str, Any]:
                 "radius_info": radius,
             }
         )
+        _save_magma_cache(volcano_payload)
 
     except HTTPException as e:
-        volcano_payload["error"] = e.detail
+        cached = _load_magma_cache()
+        if cached.get("report_url"):
+            volcano_payload.update(cached)
+            volcano_payload["stale"] = True
+            volcano_payload["warning"] = f"MAGMA live fetch gagal, pakai cache: {e.detail}"
+        else:
+            volcano_payload["error"] = e.detail
     except httpx.HTTPError as e:
-        volcano_payload["error"] = f"Gagal akses MAGMA: {type(e).__name__}: {e}"
+        cached = _load_magma_cache()
+        if cached.get("report_url"):
+            volcano_payload.update(cached)
+            volcano_payload["stale"] = True
+            volcano_payload["warning"] = f"MAGMA live fetch gagal, pakai cache: {type(e).__name__}: {e}"
+        else:
+            volcano_payload["error"] = f"Gagal akses MAGMA: {type(e).__name__}: {e}"
     except Exception as e:
-        volcano_payload["error"] = f"Gagal proses MAGMA: {type(e).__name__}: {e}"
+        cached = _load_magma_cache()
+        if cached.get("report_url"):
+            volcano_payload.update(cached)
+            volcano_payload["stale"] = True
+            volcano_payload["warning"] = f"MAGMA live fetch gagal, pakai cache: {type(e).__name__}: {e}"
+        else:
+            volcano_payload["error"] = f"Gagal proses MAGMA: {type(e).__name__}: {e}"
 
     return {
         "volcano": volcano_payload,
