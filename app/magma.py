@@ -18,8 +18,8 @@ def _candidate_tingkat_urls(tingkat_url: str) -> list[str]:
     if not base:
         return []
     urls = [base]
-    if "magma.esdm.go.id" in base:
-        urls.append(base.replace("magma.esdm.go.id", "magma.vsi.esdm.go.id"))
+    if base.startswith("https://"):
+        urls.append("http://" + base.removeprefix("https://"))
     return list(dict.fromkeys(urls))
 
 
@@ -28,8 +28,8 @@ def _candidate_report_urls(report_url: str) -> list[str]:
     if not base:
         return []
     urls = [base]
-    if "magma.esdm.go.id" in base:
-        urls.append(base.replace("magma.esdm.go.id", "magma.vsi.esdm.go.id"))
+    if base.startswith("https://"):
+        urls.append("http://" + base.removeprefix("https://"))
     return list(dict.fromkeys(urls))
 
 
@@ -37,7 +37,8 @@ async def _get_with_fallback(urls: Iterable[str], timeout: float = 20.0) -> http
     errors: list[str] = []
     async with httpx.AsyncClient(
         timeout=timeout,
-        transport=httpx.AsyncHTTPTransport(retries=2),
+        # Force IPv4 to avoid broken IPv6 routes in some cloud runtimes.
+        transport=httpx.AsyncHTTPTransport(retries=2, local_address="0.0.0.0"),
     ) as client:
         for url in urls:
             try:
