@@ -1,0 +1,6 @@
+name = "magma-proxy-worker"
+main = "src/index.js"
+compatibility_date = "2026-02-27"
+
+[observability]
+enabled = true
