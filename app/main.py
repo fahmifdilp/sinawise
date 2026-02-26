@@ -83,8 +83,7 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 # Optional components (scheduler + MAGMA fetch + notifier + state)
 # -----------------------------------------------------------------------------
-FEATURES_ERROR: Optional[str] = None
-
+FEATURES_ERROR: Optional[str] = None`r`nDEFAULT_MAGMA_TINGKAT_URL = "https://magma.esdm.go.id/v1/gunung-api/tingkat-aktivitas"`r`n
 scheduler = None
 get_latest_sinabung_report_url = None
 fetch_report_detail = None
@@ -213,9 +212,7 @@ async def dashboard() -> Dict[str, Any]:
     try:
         _ensure_magma_ready()
 
-        tingkat_url = os.environ.get("MAGMA_TINGKAT_URL", "").strip()
-        if not tingkat_url:
-            raise HTTPException(status_code=500, detail="MAGMA_TINGKAT_URL belum diset")
+        tingkat_url = os.environ.get("MAGMA_TINGKAT_URL", "").strip() or DEFAULT_MAGMA_TINGKAT_URL
 
         report_url = await get_latest_sinabung_report_url(tingkat_url)
         logger.info("Report URL: %s", report_url)
@@ -242,7 +239,7 @@ async def dashboard() -> Dict[str, Any]:
     except Exception as e:
         volcano_payload["error"] = f"Gagal proses MAGMA: {type(e).__name__}: {e}"
 
-    return {"volcano": volcano_payload, "earthquake": bmkg}
+    return {`r`n        "volcano": volcano_payload,`r`n        "magma": volcano_payload,`r`n        "earthquake": bmkg,`r`n        "gempa": bmkg,`r`n    }
 
 
 async def check_update() -> None:
@@ -256,10 +253,7 @@ async def check_update() -> None:
         logger.debug("check_update skipped; features not ready: %s", FEATURES_ERROR)
         return
 
-    tingkat_url = os.environ.get("MAGMA_TINGKAT_URL", "").strip()
-    if not tingkat_url:
-        logger.warning("MAGMA_TINGKAT_URL is empty; skipping check_update.")
-        return
+    tingkat_url = os.environ.get("MAGMA_TINGKAT_URL", "").strip() or DEFAULT_MAGMA_TINGKAT_URL
 
     topic = os.environ.get("FCM_TOPIC", "sinabung").strip() or "sinabung"
     st = load_state()
@@ -361,3 +355,4 @@ async def on_shutdown() -> None:
     if scheduler is not None and getattr(scheduler, "running", False):
         scheduler.shutdown(wait=False)
         logger.info("Scheduler stopped.")
+
