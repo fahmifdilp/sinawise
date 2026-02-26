@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Iterable
 from urllib.parse import urljoin
 
 import httpx
@@ -12,6 +13,46 @@ def _extract_report_id(report_url: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _candidate_tingkat_urls(tingkat_url: str) -> list[str]:
+    base = (tingkat_url or "").strip()
+    if not base:
+        return []
+    urls = [base]
+    if "magma.esdm.go.id" in base:
+        urls.append(base.replace("magma.esdm.go.id", "magma.vsi.esdm.go.id"))
+    return list(dict.fromkeys(urls))
+
+
+def _candidate_report_urls(report_url: str) -> list[str]:
+    base = (report_url or "").strip()
+    if not base:
+        return []
+    urls = [base]
+    if "magma.esdm.go.id" in base:
+        urls.append(base.replace("magma.esdm.go.id", "magma.vsi.esdm.go.id"))
+    return list(dict.fromkeys(urls))
+
+
+async def _get_with_fallback(urls: Iterable[str], timeout: float = 20.0) -> httpx.Response:
+    errors: list[str] = []
+    async with httpx.AsyncClient(
+        timeout=timeout,
+        transport=httpx.AsyncHTTPTransport(retries=2),
+    ) as client:
+        for url in urls:
+            try:
+                resp = await client.get(
+                    url,
+                    headers={"User-Agent": "sinabung-alert-mvp/1.0"},
+                )
+                resp.raise_for_status()
+                return resp
+            except httpx.HTTPError as e:
+                errors.append(f"{url}: {type(e).__name__}")
+                continue
+    raise httpx.ConnectError(f"MAGMA request failed on all candidates: {', '.join(errors)}")
+
+
 async def get_latest_sinabung_report_url(tingkat_url: str) -> str:
     """
     Ambil URL laporan terbaru Sinabung dari halaman 'Tingkat Aktivitas' MAGMA.
@@ -21,12 +62,7 @@ async def get_latest_sinabung_report_url(tingkat_url: str) -> str:
     if not tingkat_url:
         raise ValueError("tingkat_url kosong")
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(
-            tingkat_url,
-            headers={"User-Agent": "sinabung-alert-mvp/1.0"},
-        )
-        resp.raise_for_status()
+    resp = await _get_with_fallback(_candidate_tingkat_urls(tingkat_url), timeout=20)
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -56,12 +92,7 @@ async def fetch_report_detail(report_url: str) -> dict:
     if not report_url:
         raise ValueError("report_url kosong")
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        resp = await client.get(
-            report_url,
-            headers={"User-Agent": "sinabung-alert-mvp/1.0"},
-        )
-        resp.raise_for_status()
+    resp = await _get_with_fallback(_candidate_report_urls(report_url), timeout=20)
 
     soup = BeautifulSoup(resp.text, "html.parser")
     text = soup.get_text("\n", strip=True)
