@@ -1,0 +1,29 @@
+name: Update MAGMA Cache Hourly
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  update-cache:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch MAGMA and update backend cache
+        env:
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          MAGMA_TINGKAT_URL: ${{ secrets.MAGMA_TINGKAT_URL }}
+        run: python scripts/magma_cache_updater.py
