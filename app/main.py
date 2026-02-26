@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,10 +58,17 @@ try:
 except Exception as e:
     logger.warning("Education routes not enabled: %s: %s", type(e).__name__, e)
 
-# Emergency
+# Emergency: public + admin (kalau admin_router ada)
 try:
     from .emergency_api import router as emergency_router
     app.include_router(emergency_router)
+
+    # optional: kalau kamu pakai admin_router terpisah
+    try:
+        from .emergency_api import admin_router as emergency_admin_router
+        app.include_router(emergency_admin_router)
+    except Exception:
+        pass
 
     logger.info("Emergency routes enabled.")
 except Exception as e:
@@ -73,17 +81,11 @@ try:
 except Exception as e:
     logger.warning("Admin auth routes not enabled: %s: %s", type(e).__name__, e)
 
-try:
-    from .iot_api import router as iot_router
-    app.include_router(iot_router)
-    logger.info("IoT routes enabled.")
-except Exception as e:
-    logger.warning("IoT routes not enabled: %s: %s", type(e).__name__, e)
-
 # -----------------------------------------------------------------------------
 # Optional components (scheduler + MAGMA fetch + notifier + state)
 # -----------------------------------------------------------------------------
-FEATURES_ERROR: Optional[str] = None`r`nDEFAULT_MAGMA_TINGKAT_URL = "https://magma.esdm.go.id/v1/gunung-api/tingkat-aktivitas"`r`n
+FEATURES_ERROR: Optional[str] = None
+DEFAULT_MAGMA_TINGKAT_URL = "https://magma.esdm.go.id/v1/gunung-api/tingkat-aktivitas"
 scheduler = None
 get_latest_sinabung_report_url = None
 fetch_report_detail = None
@@ -172,8 +174,6 @@ def root() -> Dict[str, Any]:
         "education_admin_by_id": "/admin/videos/{video_id} (PUT/DELETE)",
         # scheduler manual:
         "admin_check_now": "/admin/check-now (POST)",
-        # iot:
-        "iot_air_latest": "/iot/air/latest",
     }
 
 
@@ -239,7 +239,12 @@ async def dashboard() -> Dict[str, Any]:
     except Exception as e:
         volcano_payload["error"] = f"Gagal proses MAGMA: {type(e).__name__}: {e}"
 
-    return {`r`n        "volcano": volcano_payload,`r`n        "magma": volcano_payload,`r`n        "earthquake": bmkg,`r`n        "gempa": bmkg,`r`n    }
+    return {
+        "volcano": volcano_payload,
+        "magma": volcano_payload,
+        "earthquake": bmkg,
+        "gempa": bmkg,
+    }
 
 
 async def check_update() -> None:
