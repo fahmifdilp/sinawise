@@ -8,9 +8,11 @@ from typing import Any, Dict, Optional
 
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 
+from .admin_auth import require_admin
 from .db import init_db
 from .storage import read_json, write_json
 
@@ -159,6 +161,15 @@ def _save_magma_cache(payload: Dict[str, Any]) -> None:
     cache_data["cached_at"] = datetime.now(timezone.utc).isoformat()
     write_json(MAGMA_CACHE_KEY, cache_data)
 
+
+class MagmaCacheUpsertReq(BaseModel):
+    level: Optional[str] = Field(None, description="Level MAGMA, contoh: Level III (Siaga)")
+    report_id: Optional[str] = Field(None, description="ID laporan MAGMA")
+    report_url: Optional[str] = Field(None, description="URL laporan MAGMA")
+    title: Optional[str] = Field(None, description="Judul/ringkasan laporan")
+    rekomendasi: list[str] = Field(default_factory=list, description="Daftar rekomendasi")
+    radius_info: list[str] = Field(default_factory=list, description="Ringkasan radius bahaya")
+
 # -----------------------------------------------------------------------------
 # Endpoints
 # -----------------------------------------------------------------------------
@@ -187,6 +198,8 @@ def root() -> Dict[str, Any]:
         "education_admin_by_id": "/admin/videos/{video_id} (PUT/DELETE)",
         # scheduler manual:
         "admin_check_now": "/admin/check-now (POST)",
+        "admin_magma_cache_get": "/admin/magma/cache (GET)",
+        "admin_magma_cache_set": "/admin/magma/cache (POST)",
     }
 
 
@@ -299,7 +312,7 @@ async def check_update() -> None:
         report_url = await get_latest_sinabung_report_url(tingkat_url)
         detail = await fetch_report_detail(report_url)
     except Exception:
-        logger.exception("Failed to fetch/parse MAGMA data.")
+        logger.warning("MAGMA scheduler fetch failed; keeping previous state.")
         return
 
     new_id = detail.get("report_id")
@@ -357,6 +370,28 @@ async def check_update() -> None:
 async def admin_check_now() -> Dict[str, Any]:
     await check_update()
     return {"ok": True}
+
+
+@app.get("/admin/magma/cache", dependencies=[Depends(require_admin)])
+def admin_get_magma_cache() -> Dict[str, Any]:
+    cache = _load_magma_cache()
+    return {"ok": True, "cache": cache}
+
+
+@app.post("/admin/magma/cache", dependencies=[Depends(require_admin)])
+def admin_set_magma_cache(payload: MagmaCacheUpsertReq) -> Dict[str, Any]:
+    cache_payload = {
+        "name": "Sinabung",
+        "source": "MAGMA/PVMBG",
+        "level": payload.level,
+        "report_id": payload.report_id,
+        "report_url": payload.report_url,
+        "title": payload.title,
+        "rekomendasi": payload.rekomendasi,
+        "radius_info": payload.radius_info,
+    }
+    _save_magma_cache(cache_payload)
+    return {"ok": True, "cache": _load_magma_cache()}
 
 
 @app.on_event("startup")
