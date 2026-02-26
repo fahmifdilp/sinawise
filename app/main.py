@@ -235,7 +235,7 @@ async def dashboard() -> Dict[str, Any]:
     except HTTPException as e:
         volcano_payload["error"] = e.detail
     except httpx.HTTPError as e:
-        volcano_payload["error"] = f"Gagal akses MAGMA: {type(e).__name__}"
+        volcano_payload["error"] = f"Gagal akses MAGMA: {type(e).__name__}: {e}"
     except Exception as e:
         volcano_payload["error"] = f"Gagal proses MAGMA: {type(e).__name__}: {e}"
 
