@@ -75,3 +75,11 @@ class VideoOut(VideoBase):
     id: str
     created_at: datetime
     updated_at: datetime
+
+
+# ---------------- APP STATE ----------------
+
+class AppKV(SQLModel, table=True):
+    key: str = Field(primary_key=True, index=True)
+    value_json: str
+    updated_at: datetime = Field(default_factory=now_utc)

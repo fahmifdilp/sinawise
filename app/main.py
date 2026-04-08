@@ -61,6 +61,13 @@ try:
 except Exception as e:
     logger.warning("Education routes not enabled: %s: %s", type(e).__name__, e)
 
+try:
+    from .iot_api import router as iot_router
+    app.include_router(iot_router)
+    logger.info("IoT routes enabled.")
+except Exception as e:
+    logger.warning("IoT routes not enabled: %s: %s", type(e).__name__, e)
+
 # Emergency: public + admin (kalau admin_router ada)
 try:
     from .emergency_api import router as emergency_router
@@ -234,6 +241,7 @@ def root() -> Dict[str, Any]:
         "posko_public": "/evacuation/posts",
         "education_public": "/education/videos",
         "emergency_status": "/emergency/status",
+        "air_quality_latest": "/iot/air/latest",
         # admin auth:
         "admin_login": "/admin/login",
         "admin_me": "/admin/me",

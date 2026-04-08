@@ -16,8 +16,13 @@ logger = logging.getLogger("sinabung.iot")
 STATE_KEY = "air_quality_state"
 
 IOT_API_KEY = os.environ.get("IOT_API_KEY", "").strip()
+IOT_USE_MOCK = os.environ.get("IOT_USE_MOCK", "1").strip().lower() not in {"0", "false", "no", "off"}
 PM25_GREEN_MAX = float(os.environ.get("IOT_PM25_GREEN_MAX", "15"))
 PM25_YELLOW_MAX = float(os.environ.get("IOT_PM25_YELLOW_MAX", "35"))
+IOT_MOCK_PM1 = float(os.environ.get("IOT_MOCK_PM1", "4"))
+IOT_MOCK_PM25 = float(os.environ.get("IOT_MOCK_PM25", "8"))
+IOT_MOCK_PM10 = float(os.environ.get("IOT_MOCK_PM10", "12"))
+IOT_MOCK_DEVICE_ID = os.environ.get("IOT_MOCK_DEVICE_ID", "virtual-air-sensor").strip() or "virtual-air-sensor"
 
 
 class AirPayload(BaseModel):
@@ -28,6 +33,8 @@ class AirPayload(BaseModel):
 
 
 def _default_state() -> Dict[str, Any]:
+    if IOT_USE_MOCK:
+        return _mock_state()
     return {
         "pm25": None,
         "pm10": None,
@@ -36,6 +43,21 @@ def _default_state() -> Dict[str, Any]:
         "label": "tidak diketahui",
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "device_id": None,
+    }
+
+
+def _mock_state() -> Dict[str, Any]:
+    return {
+        "pm25": IOT_MOCK_PM25,
+        "pm10": IOT_MOCK_PM10,
+        "pm1": IOT_MOCK_PM1,
+        "status": "green",
+        "label": "bersih",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "device_id": IOT_MOCK_DEVICE_ID,
+        "is_mock": True,
+        "source": "mock",
+        "note": "Data sementara sampai sensor kualitas udara dipasang.",
     }
 
 
@@ -50,6 +72,8 @@ def _load_state() -> Dict[str, Any]:
     data.setdefault("label", "tidak diketahui")
     data.setdefault("updated_at", datetime.now(timezone.utc).isoformat())
     data.setdefault("device_id", None)
+    data.setdefault("is_mock", False)
+    data.setdefault("source", "sensor" if data.get("pm25") is not None else "unknown")
     return data
 
 
@@ -73,9 +97,21 @@ def _check_api_key(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid IOT API key")
 
 
+def _resolve_state_for_read() -> Dict[str, Any]:
+    state = _load_state()
+    should_use_mock = IOT_USE_MOCK and (state.get("is_mock") is True or state.get("pm25") is None)
+    if should_use_mock:
+        mock = _mock_state()
+        for key, value in state.items():
+            if key not in mock and value is not None:
+                mock[key] = value
+        return mock
+    return state
+
+
 @router.get("/iot/air/latest")
 def air_latest() -> Dict[str, Any]:
-    return _load_state()
+    return _resolve_state_for_read()
 
 
 @router.post("/iot/air")
@@ -93,6 +129,8 @@ def air_ingest(payload: AirPayload, request: Request) -> Dict[str, Any]:
             "label": status["label"],
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "device_id": payload.device_id,
+            "is_mock": False,
+            "source": "sensor",
         }
     )
     _save_state(state)

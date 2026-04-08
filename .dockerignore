@@ -1,0 +1,14 @@
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.db
+.env
+local-backend*.log
+tmp_*.db
+app/backend
+app/__pycache__
+app/data

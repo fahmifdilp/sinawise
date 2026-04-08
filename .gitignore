@@ -8,9 +8,16 @@ venv/
 
 # Local database
 *.db
+tmp_*.db
+data/
+state.json
+spaces.yml
 
 # Environment
 .env
+
+# Local logs
+local-backend*.log
 
 # OS
 Thumbs.db

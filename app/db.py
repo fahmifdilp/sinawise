@@ -21,6 +21,10 @@ engine = create_engine(
 
 def init_db() -> None:
     """Create all tables from SQLModel metadata."""
+    # Import model module lazily so all SQLModel tables are registered
+    # before create_all() is executed from scripts or startup hooks.
+    from . import models  # noqa: F401
+
     SQLModel.metadata.create_all(engine)
 
 def get_session() -> Generator[Session, None, None]:

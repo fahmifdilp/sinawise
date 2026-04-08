@@ -19,11 +19,12 @@ services:
     depends_on:
       - db
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/sinawise
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/sinawise
       JWT_SECRET: super-rahasia-panjang
       ADMIN_USERNAME: sinauguardian@gmail.com
       ADMIN_PASSWORD: bismillahjuara
-      CORS_ORIGINS: "*"
+      CORS_ALLOW_ORIGINS: "*"
+      IOT_USE_MOCK: "1"
     ports:
       - "8000:8000"
 
