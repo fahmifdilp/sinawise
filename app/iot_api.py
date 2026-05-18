@@ -17,8 +17,8 @@ STATE_KEY = "air_quality_state"
 
 IOT_API_KEY = os.environ.get("IOT_API_KEY", "").strip()
 IOT_USE_MOCK = os.environ.get("IOT_USE_MOCK", "1").strip().lower() not in {"0", "false", "no", "off"}
-PM25_GREEN_MAX = float(os.environ.get("IOT_PM25_GREEN_MAX", "15"))
-PM25_YELLOW_MAX = float(os.environ.get("IOT_PM25_YELLOW_MAX", "35"))
+PM25_GOOD_MAX = float(os.environ.get("IOT_PM25_GOOD_MAX", "15"))
+PM25_MODERATE_MAX = float(os.environ.get("IOT_PM25_MODERATE_MAX", "65"))
 IOT_MOCK_PM1 = float(os.environ.get("IOT_MOCK_PM1", "4"))
 IOT_MOCK_PM25 = float(os.environ.get("IOT_MOCK_PM25", "8"))
 IOT_MOCK_PM10 = float(os.environ.get("IOT_MOCK_PM10", "12"))
@@ -82,10 +82,12 @@ def _save_state(state: Dict[str, Any]) -> None:
 
 
 def _pm25_status(pm25: float) -> Dict[str, str]:
-    if pm25 <= PM25_GREEN_MAX:
-        return {"status": "green", "label": "aman"}
-    if pm25 <= PM25_YELLOW_MAX:
-        return {"status": "yellow", "label": "waspada"}
+    # Ringkas dari kategori PM2.5 per jam BMKG: 0-15 baik,
+    # 16-65 sedang, dan 66+ mulai tidak sehat.
+    if pm25 <= PM25_GOOD_MAX:
+        return {"status": "green", "label": "baik"}
+    if pm25 <= PM25_MODERATE_MAX:
+        return {"status": "yellow", "label": "sedang"}
     return {"status": "red", "label": "bahaya"}
 
 
